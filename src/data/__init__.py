@@ -1,58 +1,86 @@
 """
-CoolStay RAG ‹§\ pt0 ò¨ ®»
+CoolStay RAG data processing module
 
-t ®»@ »l‰¥ 8X \), ò¨, ≠πD Ù˘i»‰.
+Provides document loading, preprocessing, and vector storage functionality.
+
+Core Components:
+- DocumentLoader: Multi-format document loading
+- DocumentPreprocessor: Text cleaning and preprocessing
+- DocumentChunker: Intelligent text chunking
+- ChromaManager: ChromaDB vector store management
 """
 
 from .loader import (
-    MarkdownLoader,
-    DocumentValidator,
-    load_all_documents,
-    load_domain_document,
-    validate_document,
-    get_document_structure_analysis
+    DocumentLoader,
+    DocumentMetadata,
+    SupportedFormat,
+    create_document_loader,
+    load_documents_from_directory
 )
 
 from .preprocessor import (
-    MarkdownPreprocessor,
-    PreprocessingStats,
-    preprocess_text,
-    preprocess_document,
-    preprocess_documents,
-    validate_content
+    DocumentPreprocessor,
+    PreprocessingConfig,
+    TextCleaner,
+    create_preprocessor,
+    preprocess_documents_simple
 )
 
 from .chunker import (
-    MarkdownChunker,
+    DocumentChunker,
     ChunkingStrategy,
-    ChunkingResult,
-    ChunkingExperiment,
-    chunk_document,
-    analyze_chunking_quality
+    ChunkMetadata,
+    create_chunker,
+    chunk_documents_simple
+)
+
+from .chroma_manager import (
+    ChromaManager,
+    CollectionInfo,
+    create_chroma_manager,
+    get_collection_stats
+)
+
+from .retriever import (
+    ChromaRetriever,
+    RetrievalConfig,
+    RetrievalResult,
+    create_retriever,
+    search_simple
 )
 
 __all__ = [
-    # Loader
-    "MarkdownLoader",
-    "DocumentValidator",
-    "load_all_documents",
-    "load_domain_document",
-    "validate_document",
-    "get_document_structure_analysis",
+    # Document Loader
+    "DocumentLoader",
+    "DocumentMetadata",
+    "SupportedFormat",
+    "create_document_loader",
+    "load_documents_from_directory",
 
-    # Preprocessor
-    "MarkdownPreprocessor",
-    "PreprocessingStats",
-    "preprocess_text",
-    "preprocess_document",
-    "preprocess_documents",
-    "validate_content",
+    # Document Preprocessor
+    "DocumentPreprocessor",
+    "PreprocessingConfig",
+    "TextCleaner",
+    "create_preprocessor",
+    "preprocess_documents_simple",
 
-    # Chunker
-    "MarkdownChunker",
+    # Document Chunker
+    "DocumentChunker",
     "ChunkingStrategy",
-    "ChunkingResult",
-    "ChunkingExperiment",
-    "chunk_document",
-    "analyze_chunking_quality"
+    "ChunkMetadata",
+    "create_chunker",
+    "chunk_documents_simple",
+
+    # Chroma Manager
+    "ChromaManager",
+    "CollectionInfo",
+    "create_chroma_manager",
+    "get_collection_stats",
+
+    # Retriever
+    "ChromaRetriever",
+    "RetrievalConfig",
+    "RetrievalResult",
+    "create_retriever",
+    "search_simple"
 ]

@@ -247,6 +247,10 @@ class CoolStayConfig:
 
         return self.optimal_chunking_strategies[domain]["chunk_size"]
 
+    def get_domains(self) -> List[str]:
+        """모든 도메인 목록 반환"""
+        return self.domain_list.copy()
+
     def validate_api_keys(self) -> Dict[str, bool]:
         """API 키 유효성 검사"""
         validation = {
