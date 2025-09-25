@@ -191,7 +191,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
                 result = self._simple_merge(routing_result, valid_responses)
 
             # 웹 검색 결과 통합
-            if routing_result.web_response and routing_result.web_response.status == AgentStatus.SUCCESS:
+            if routing_result.web_response and routing_result.web_response.status == AgentStatus.READY:
                 result = self._integrate_web_response(result, routing_result.web_response)
 
             # 실행 시간 설정
@@ -207,7 +207,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
     def _determine_integration_strategy(self, routing_result: RoutingResult) -> IntegrationStrategy:
         """통합 전략을 결정합니다."""
         num_responses = len([r for r in routing_result.agent_responses.values()
-                           if r.status == AgentStatus.SUCCESS])
+                           if r.status == AgentStatus.READY])
 
         # 단일 응답인 경우
         if num_responses == 1:
@@ -235,9 +235,9 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
 
         for agent_name, response in agent_responses.items():
             # 성공한 응답만 포함
-            if response.status == AgentStatus.SUCCESS and response.content.strip():
+            if response.status == AgentStatus.READY and response.answer.strip():
                 # 최소 길이 체크
-                if len(response.content.strip()) >= 10:
+                if len(response.answer.strip()) >= 10:
                     valid_responses[agent_name] = response
 
         return valid_responses
@@ -252,14 +252,14 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
             # 단일 응답인 경우
             agent_name, response = next(iter(valid_responses.items()))
             return IntegratedResponse(
-                final_answer=response.content,
+                final_answer=response.answer,
                 confidence=0.8,
                 sources=response.metadata.get('sources', []),
                 contributing_agents=[agent_name],
                 integration_strategy=IntegrationStrategy.SIMPLE_MERGE,
                 reasoning=f"단일 에이전트 {agent_name} 응답 사용",
                 metadata=response.metadata or {},
-                quality_metrics=self._calculate_basic_quality_metrics(response.content),
+                quality_metrics=self._calculate_basic_quality_metrics(response.answer),
                 execution_time=0.0
             )
 
@@ -269,7 +269,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
         contributing_agents = []
 
         for agent_name, response in valid_responses.items():
-            merged_content.append(f"**{agent_name} 관점**:\n{response.content}")
+            merged_content.append(f"**{agent_name} 관점**:\n{response.answer}")
             if response.metadata and 'sources' in response.metadata:
                 all_sources.extend(response.metadata['sources'])
             contributing_agents.append(agent_name)
@@ -307,7 +307,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
             if weight.agent_name != primary_response.agent_name and weight.total_weight > 0.3:
                 agent_response = valid_responses[weight.agent_name]
                 supplementary_info.append(
-                    f"\n**추가 정보 ({weight.agent_name})**:\n{agent_response.content[:200]}..."
+                    f"\n**추가 정보 ({weight.agent_name})**:\n{agent_response.answer[:200]}..."
                 )
 
         final_answer = primary_content
@@ -413,8 +413,8 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
                     quality_score = response.metadata['confidence']
 
             # 응답 길이 고려 (너무 짧거나 긴 것은 감점)
-            length_score = min(len(response.content) / 500, 1.0)
-            if len(response.content) < 50:
+            length_score = min(len(response.answer) / 500, 1.0)
+            if len(response.answer) < 50:
                 length_score *= 0.5
 
             total_score = (quality_score * 0.7) + (length_score * 0.3)
@@ -425,14 +425,14 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
 
         # 최고 점수 응답을 기본으로 사용
         best_agent, best_response, best_score = scored_responses[0]
-        final_answer = best_response.content
+        final_answer = best_response.answer
 
         # 상위 2개 응답이 비슷한 점수라면 통합
         if len(scored_responses) > 1:
             second_score = scored_responses[1][2]
             if abs(best_score - second_score) < 0.1:
                 second_agent, second_response, _ = scored_responses[1]
-                final_answer += f"\n\n**추가 관점 ({second_agent})**:\n{second_response.content[:300]}..."
+                final_answer += f"\n\n**추가 관점 ({second_agent})**:\n{second_response.answer[:300]}..."
 
         # 소스 수집
         all_sources = []
@@ -547,7 +547,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
             weight.relevance_weight = min(keyword_matches / max(len(domain_keywords), 1) + 0.3, 1.0)
 
             # 완전성 가중치 (응답 길이 고려)
-            content_length = len(response.content)
+            content_length = len(response.answer)
             if content_length > 200:
                 weight.completeness_weight = min(content_length / 1000, 1.0)
             else:
@@ -585,7 +585,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
         for agent_name, response in valid_responses.items():
             formatted_response = f"""
 **{agent_name.upper()} 전문가**:
-{response.content}
+{response.answer}
 
 품질 정보: {response.metadata.get('quality_score', 'N/A') if response.metadata else 'N/A'}
 소스: {', '.join(response.metadata.get('sources', [])) if response.metadata and response.metadata.get('sources') else '내부 문서'}
@@ -603,7 +603,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
             return common_points
 
         # 모든 응답에서 공통으로 언급되는 주요 개념들
-        all_contents = [response.content.lower() for response in valid_responses.values()]
+        all_contents = [response.answer.lower() for response in valid_responses.values()]
 
         # 공통 키워드 추출 (간단한 구현)
         common_keywords = [
@@ -631,7 +631,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
             unique_mentions = []
 
             for keyword in domain_keywords:
-                if keyword in response.content.lower():
+                if keyword in response.answer.lower():
                     # 다른 응답에서 언급되지 않은 경우
                     other_responses = [r.content.lower() for name, r in valid_responses.items() if name != agent_name]
                     if not any(keyword in other_content for other_content in other_responses):
@@ -663,7 +663,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
             key_points = []
             for agent_name, response in valid_responses.items():
                 # 첫 문장 추출 (간단한 구현)
-                first_sentence = response.content.split('.')[0][:100]
+                first_sentence = response.answer.split('.')[0][:100]
                 if first_sentence:
                     key_points.append(f"{agent_name}: {first_sentence}")
 
@@ -684,7 +684,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
     ) -> IntegratedResponse:
         """웹 검색 결과를 통합합니다."""
         # 웹 검색 정보를 추가 섹션으로 포함
-        web_section = f"\n\n**최신 웹 정보**:\n{web_response.content}"
+        web_section = f"\n\n**최신 웹 정보**:\n{web_response.answer}"
 
         updated_response = IntegratedResponse(
             final_answer=base_response.final_answer + web_section,

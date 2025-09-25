@@ -39,7 +39,7 @@ def test_imports():
 
     # 2. 데이터 처리 모듈
     try:
-        from src.data import ChromaManager, DocumentLoader, DocumentPreprocessor
+        from src.data import ChromaManager, MarkdownLoader, MarkdownPreprocessor
         tests.append(("✅ 데이터 처리 모듈", "성공"))
     except Exception as e:
         tests.append(("❌ 데이터 처리 모듈", f"실패: {e}"))
@@ -95,8 +95,8 @@ def test_basic_config():
 
         print(f"✅ 설정 로드 성공")
         print(f"  - 도메인 수: {len(config.get_domains())}")
-        print(f"  - 임베딩 모델: {config.embeddings_config.get('model_name', 'N/A')}")
-        print(f"  - LLM 모델: {config.llm_config.get('model_name', 'N/A')}")
+        print(f"  - 임베딩 모델: {getattr(config.embedding_config, 'model_name', 'N/A')}")
+        print(f"  - LLM 모델: {config.openai_config.name}")
 
         return True
     except Exception as e:

@@ -67,7 +67,7 @@ class DomainRouter:
             config: CoolStay 설정 객체
         """
         self.config = config or CoolStayConfig()
-        self.question_analyzer = QuestionAnalyzer(config)
+        self.question_analyzer = QuestionAnalyzer()
 
         # 에이전트 초기화
         self.domain_agents: Dict[str, BaseRAGAgent] = {}
@@ -113,29 +113,28 @@ class DomainRouter:
             ]
         }
 
-        # 질문 유형별 라우팅 전략
+        # 질문 유형별 라우팅 전략 (실제 QuestionType 열거형에 맞춤)
         self.type_strategy_mapping = {
-            QuestionType.FACTUAL: RoutingStrategy.SINGLE,
-            QuestionType.PROCEDURAL: RoutingStrategy.SINGLE,
-            QuestionType.COMPARATIVE: RoutingStrategy.MULTI_PARALLEL,
-            QuestionType.ANALYTICAL: RoutingStrategy.MULTI_PARALLEL,
-            QuestionType.CREATIVE: RoutingStrategy.HYBRID,
-            QuestionType.TROUBLESHOOTING: RoutingStrategy.MULTI_SEQUENTIAL
+            QuestionType.SPECIFIC_DOMAIN: RoutingStrategy.SINGLE,
+            QuestionType.MULTI_DOMAIN: RoutingStrategy.MULTI_PARALLEL,
+            QuestionType.GENERAL: RoutingStrategy.SINGLE,
+            QuestionType.WEB_SEARCH: RoutingStrategy.SINGLE,
+            QuestionType.UNCLEAR: RoutingStrategy.HYBRID
         }
 
     async def initialize_agents(self):
         """에이전트들을 초기화합니다."""
         try:
-            # 도메인 에이전트 생성
-            self.domain_agents = create_all_domain_agents(self.config)
+            # 도메인 에이전트 생성 (llm과 chroma_manager를 None으로 전달하면 기본값 사용)
+            self.domain_agents = create_all_domain_agents(llm=None, chroma_manager=None)
             logger.info(f"도메인 에이전트 {len(self.domain_agents)}개 초기화 완료")
 
             # Corrective RAG 에이전트 생성
-            self.corrective_agents = create_all_corrective_agents(self.config)
+            self.corrective_agents = create_all_corrective_agents(llm=None, chroma_manager=None)
             logger.info(f"Corrective RAG 에이전트 {len(self.corrective_agents)}개 초기화 완료")
 
             # 웹 에이전트 생성
-            self.web_agent = create_web_agent(self.config)
+            self.web_agent = create_web_agent(llm=None)
             logger.info("웹 에이전트 초기화 완료")
 
             return True
@@ -199,12 +198,12 @@ class DomainRouter:
                 return RoutingStrategy.MULTI_PARALLEL
 
         # 복잡도에 따른 조정
-        if analysis.complexity >= 0.8:
+        if analysis.complexity == "complex":
             if base_strategy == RoutingStrategy.SINGLE:
                 return RoutingStrategy.MULTI_SEQUENTIAL
 
         # 최신성 요구사항
-        if analysis.requires_latest_info:
+        if analysis.requires_web_search:
             if base_strategy != RoutingStrategy.HYBRID:
                 return RoutingStrategy.HYBRID
 
@@ -212,24 +211,23 @@ class DomainRouter:
 
     def _select_primary_agents(self, analysis: QuestionAnalysis) -> List[str]:
         """주요 에이전트를 선택합니다."""
-        if not analysis.relevant_domains:
+        # 디버깅 로그 추가
+        logger.info(f"DEBUG: primary_domains type: {type(analysis.primary_domains)}, value: {analysis.primary_domains}")
+        logger.info(f"DEBUG: relevant_domains type: {type(analysis.relevant_domains)}, value: {analysis.relevant_domains}")
+
+        # primary_domains가 이미 리스트이므로 직접 사용
+        if not analysis.primary_domains:
             # 폴백: 비즈니스 정책 에이전트 사용
             return ['business_policy']
 
-        # 신뢰도가 높은 상위 도메인들 선택
-        sorted_domains = sorted(
-            analysis.relevant_domains.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
+        # primary_domains를 그대로 반환 (최대 3개까지만)
+        # 도메인이 실제로 존재하는지 확인
+        available_agents = []
+        for domain in analysis.primary_domains[:3]:
+            if domain in self.domain_agents or domain in self.corrective_agents:
+                available_agents.append(domain)
 
-        # 최대 3개 에이전트 선택
-        primary_agents = []
-        for domain, confidence in sorted_domains[:3]:
-            if confidence >= 0.3:  # 최소 신뢰도 임계값
-                primary_agents.append(domain)
-
-        return primary_agents if primary_agents else ['business_policy']
+        return available_agents if available_agents else ['business_policy']
 
     def _select_secondary_agents(
         self,
@@ -239,10 +237,11 @@ class DomainRouter:
         """보조 에이전트를 선택합니다."""
         secondary_agents = []
 
-        # 관련 도메인 중 주요 에이전트에 포함되지 않은 것들
-        for domain, confidence in analysis.relevant_domains.items():
-            if domain not in primary_agents and confidence >= 0.2:
-                secondary_agents.append(domain)
+        # secondary_domains 중 주요 에이전트에 포함되지 않은 것들
+        for domain in analysis.secondary_domains:
+            if domain not in primary_agents:
+                if domain in self.domain_agents or domain in self.corrective_agents:
+                    secondary_agents.append(domain)
 
         # 최대 2개 보조 에이전트
         return secondary_agents[:2]
@@ -250,18 +249,16 @@ class DomainRouter:
     def _should_use_web_search(self, analysis: QuestionAnalysis) -> bool:
         """웹 검색이 필요한지 판단합니다."""
         # 최신 정보 요구
-        if analysis.requires_latest_info:
+        if analysis.requires_web_search:
             return True
 
-        # 모든 도메인의 신뢰도가 낮음
-        if analysis.relevant_domains:
-            max_confidence = max(analysis.relevant_domains.values())
-            if max_confidence < 0.4:
-                return True
+        # 도메인이 없거나 확신도가 낮을 때
+        if not analysis.relevant_domains or analysis.confidence_score < 0.4:
+            return True
 
         # 특정 키워드가 포함된 경우
         web_keywords = ['최신', '현재', '오늘', '요즘', '트렌드', '뉴스']
-        question_lower = analysis.original_question.lower()
+        question_lower = analysis.question.lower()
         if any(keyword in question_lower for keyword in web_keywords):
             return True
 
@@ -276,21 +273,13 @@ class DomainRouter:
         if not analysis.relevant_domains:
             return 0.3
 
-        # 주요 에이전트들의 평균 신뢰도
-        agent_confidences = []
-        for agent in primary_agents:
-            if agent in analysis.relevant_domains:
-                agent_confidences.append(analysis.relevant_domains[agent])
+        # 분석의 신뢰도를 그대로 사용
+        base_confidence = analysis.confidence_score
 
-        if not agent_confidences:
-            return 0.3
+        # 선택된 에이전트 수에 따른 조정
+        agent_count_factor = min(len(primary_agents) * 0.1, 0.3)
 
-        base_confidence = sum(agent_confidences) / len(agent_confidences)
-
-        # 질문 명확성에 따른 조정
-        clarity_boost = min(analysis.clarity * 0.2, 0.2)
-
-        return min(base_confidence + clarity_boost, 1.0)
+        return min(base_confidence + agent_count_factor, 1.0)
 
     def _generate_reasoning(
         self,
@@ -306,12 +295,9 @@ class DomainRouter:
 
         # 주요 도메인
         if analysis.relevant_domains:
-            top_domains = sorted(
-                analysis.relevant_domains.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )[:2]
-            domain_str = ", ".join([f"{d}({c:.2f})" for d, c in top_domains])
+            # relevant_domains는 리스트이므로 직접 사용
+            top_domains = analysis.relevant_domains[:2]
+            domain_str = ", ".join(top_domains)
             reasoning_parts.append(f"관련 도메인: {domain_str}")
 
         # 전략 선택 이유
@@ -398,14 +384,16 @@ class DomainRouter:
             agent = self.corrective_agents[agent_name]
             response = agent.corrective_query(question)
             responses[agent_name] = AgentResponse(
-                content=response.final_answer,
+                answer=response.final_answer,
+                source_documents=response.source_documents,
+                domain=agent_name,
+                agent_name=agent_name,
+                confidence_score=response.quality_assessment.confidence_score,
+                status=AgentStatus.READY if response.final_answer else AgentStatus.ERROR,
                 metadata={
-                    'domain': agent_name,
-                    'quality_score': response.final_quality.overall_score,
                     'iterations': response.iterations,
-                    'sources': response.sources
-                },
-                status=AgentStatus.SUCCESS if response.final_answer else AgentStatus.FAILED
+                    'quality_score': response.quality_assessment.confidence_score
+                }
             )
         elif agent_name in self.domain_agents:
             agent = self.domain_agents[agent_name]
@@ -440,8 +428,11 @@ class DomainRouter:
             except Exception as e:
                 logger.error(f"에이전트 {agent_name} 실행 실패: {e}")
                 responses[agent_name] = AgentResponse(
-                    content=f"에이전트 실행 실패: {str(e)}",
-                    status=AgentStatus.FAILED
+                    answer=f"에이전트 실행 실패: {str(e)}",
+                    source_documents=[],
+                    domain=agent_name,
+                    agent_name=agent_name,
+                    status=AgentStatus.ERROR
                 )
 
         return responses
@@ -467,14 +458,17 @@ class DomainRouter:
                 responses[agent_name] = response
 
                 # 다음 에이전트를 위한 컨텍스트 업데이트
-                if response.status == AgentStatus.SUCCESS:
+                if response.status == AgentStatus.READY:
                     context = f"{question}\n\n이전 분석: {response.content}"
 
             except Exception as e:
                 logger.error(f"에이전트 {agent_name} 순차 실행 실패: {e}")
                 responses[agent_name] = AgentResponse(
-                    content=f"에이전트 실행 실패: {str(e)}",
-                    status=AgentStatus.FAILED
+                    answer=f"에이전트 실행 실패: {str(e)}",
+                    source_documents=[],
+                    domain=agent_name,
+                    agent_name=agent_name,
+                    status=AgentStatus.ERROR
                 )
 
         return responses
@@ -489,8 +483,11 @@ class DomainRouter:
         except Exception as e:
             logger.error(f"웹 검색 실패: {e}")
             return AgentResponse(
-                content=f"웹 검색 실패: {str(e)}",
-                status=AgentStatus.FAILED
+                answer=f"웹 검색 실패: {str(e)}",
+                source_documents=[],
+                domain="web_search",
+                agent_name="web_search",
+                status=AgentStatus.ERROR
             )
 
     async def _async_agent_query(self, agent: BaseRAGAgent, question: str) -> AgentResponse:
@@ -504,14 +501,16 @@ class DomainRouter:
         corrective_response = await loop.run_in_executor(None, agent.corrective_query, question)
 
         return AgentResponse(
-            content=corrective_response.final_answer,
+            answer=corrective_response.final_answer,
+            source_documents=corrective_response.source_documents,
+            domain=agent.domain,
+            agent_name=agent.agent_name,
+            confidence_score=corrective_response.quality_assessment.confidence_score,
+            status=AgentStatus.READY if corrective_response.final_answer else AgentStatus.ERROR,
             metadata={
-                'domain': agent.domain,
-                'quality_score': corrective_response.final_quality.overall_score,
                 'iterations': corrective_response.iterations,
-                'sources': corrective_response.sources
-            },
-            status=AgentStatus.SUCCESS if corrective_response.final_answer else AgentStatus.FAILED
+                'quality_score': corrective_response.quality_assessment.confidence_score
+            }
         )
 
     def get_agent_status(self) -> Dict[str, Any]:

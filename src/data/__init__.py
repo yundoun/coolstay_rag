@@ -4,83 +4,43 @@ CoolStay RAG data processing module
 Provides document loading, preprocessing, and vector storage functionality.
 
 Core Components:
-- DocumentLoader: Multi-format document loading
-- DocumentPreprocessor: Text cleaning and preprocessing
-- DocumentChunker: Intelligent text chunking
+- MarkdownLoader: Multi-format document loading
+- MarkdownPreprocessor: Text cleaning and preprocessing
+- MarkdownChunker: Intelligent text chunking
 - ChromaManager: ChromaDB vector store management
 """
 
-from .loader import (
-    DocumentLoader,
-    DocumentMetadata,
-    SupportedFormat,
-    create_document_loader,
-    load_documents_from_directory
-)
+from .loader import MarkdownLoader, DocumentValidator
+from .preprocessor import MarkdownPreprocessor, PreprocessingStats
+from .chunker import MarkdownChunker, ChunkingStrategy, ChunkingResult
 
-from .preprocessor import (
-    DocumentPreprocessor,
-    PreprocessingConfig,
-    TextCleaner,
-    create_preprocessor,
-    preprocess_documents_simple
-)
+# ChromaManager는 vectorstore 모듈에 있음
+try:
+    from ..vectorstore.chroma_manager import ChromaManager
+except ImportError:
+    ChromaManager = None
 
-from .chunker import (
-    DocumentChunker,
-    ChunkingStrategy,
-    ChunkMetadata,
-    create_chunker,
-    chunk_documents_simple
-)
-
-from .chroma_manager import (
-    ChromaManager,
-    CollectionInfo,
-    create_chroma_manager,
-    get_collection_stats
-)
-
-from .retriever import (
-    ChromaRetriever,
-    RetrievalConfig,
-    RetrievalResult,
-    create_retriever,
-    search_simple
-)
+# Retriever는 vectorstore 모듈에 있음
+try:
+    from ..vectorstore.retriever import ChromaRetriever
+except ImportError:
+    ChromaRetriever = None
 
 __all__ = [
     # Document Loader
-    "DocumentLoader",
-    "DocumentMetadata",
-    "SupportedFormat",
-    "create_document_loader",
-    "load_documents_from_directory",
+    "MarkdownLoader",
+    "DocumentValidator",
 
     # Document Preprocessor
-    "DocumentPreprocessor",
-    "PreprocessingConfig",
-    "TextCleaner",
-    "create_preprocessor",
-    "preprocess_documents_simple",
+    "MarkdownPreprocessor",
+    "PreprocessingStats",
 
     # Document Chunker
-    "DocumentChunker",
+    "MarkdownChunker",
     "ChunkingStrategy",
-    "ChunkMetadata",
-    "create_chunker",
-    "chunk_documents_simple",
+    "ChunkingResult",
 
-    # Chroma Manager
+    # ChromaDB (if available)
     "ChromaManager",
-    "CollectionInfo",
-    "create_chroma_manager",
-    "get_collection_stats",
-
-    # Retriever
     "ChromaRetriever",
-    "RetrievalConfig",
-    "RetrievalResult",
-    "create_retriever",
-    "search_simple"
 ]

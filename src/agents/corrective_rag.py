@@ -187,10 +187,13 @@ class QueryRewriter:
 **개선된 질문 (한국어로만):**
 """)
 
+        # LangChain pipeline 표현식을 호환성을 위해 함수 호출로 변경
+        from langchain_core.runnables import RunnableLambda
+
         self.rewrite_chain = (
             self.rewrite_prompt
             | self.llm.llm
-            | lambda x: x.content.strip()
+            | RunnableLambda(lambda x: x.content.strip())
         )
 
     def rewrite(self, original_question: str, context: List[str],

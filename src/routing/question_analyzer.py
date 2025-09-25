@@ -53,6 +53,11 @@ class QuestionAnalysis:
     reasoning: str                         # 분석 근거
     metadata: Optional[Dict[str, Any]] = None
 
+    @property
+    def relevant_domains(self) -> List[str]:
+        """관련 도메인들 (주요 + 부차적)"""
+        return self.primary_domains + self.secondary_domains
+
 
 class QuestionAnalyzer:
     """질문 분석기"""
@@ -129,19 +134,21 @@ class QuestionAnalyzer:
    - medium: 일반적인 업무 문의
    - low: 참고용, 교육용 질문
 
-다음 JSON 형식으로 응답하세요:
-{{
+다음 JSON 형식으로 응답하세요 (중괄호 안의 내용은 실제 값으로 채워주세요):
+```json
+{{{{
     "question_type": "specific_domain|multi_domain|general|web_search|unclear",
     "primary_domains": ["domain1", "domain2"],
     "secondary_domains": ["domain3"],
-    "confidence_score": 0.0-1.0,
+    "confidence_score": 0.85,
     "urgency_level": "high|medium|low",
     "keywords": ["키워드1", "키워드2", "키워드3"],
     "intent": "질문의 핵심 의도를 한 문장으로",
     "complexity": "simple|medium|complex",
-    "requires_web_search": true|false,
+    "requires_web_search": true,
     "reasoning": "분석 근거를 상세히 설명"
-}}
+}}}}
+```
 """)
 
         self.analysis_chain = (

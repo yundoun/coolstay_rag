@@ -142,32 +142,68 @@ class IntegratedRAGPipeline:
         try:
             logger.info("파이프라인 초기화 시작")
 
+            # 디버깅: config 객체 속성 확인
+            logger.info(f"DEBUG: config 타입: {type(self.config)}")
+            logger.info(f"DEBUG: config 속성들: {dir(self.config)}")
+
             # 1. ChromaDB 관리자 초기화
-            self.chroma_manager = ChromaManager(self.config)
-            logger.info("ChromaDB 관리자 초기화 완료")
+            logger.info("ChromaDB 관리자 초기화 시작...")
+            try:
+                self.chroma_manager = ChromaManager()
+                logger.info("ChromaDB 관리자 초기화 완료")
+            except Exception as e:
+                logger.error(f"ChromaDB 관리자 초기화 실패: {e}")
+                raise
 
             # 2. 질문 분석기 초기화
-            self.question_analyzer = QuestionAnalyzer(self.config)
-            logger.info("질문 분석기 초기화 완료")
+            logger.info("질문 분석기 초기화 시작...")
+            try:
+                self.question_analyzer = QuestionAnalyzer()
+                logger.info("질문 분석기 초기화 완료")
+            except Exception as e:
+                logger.error(f"질문 분석기 초기화 실패: {e}")
+                raise
 
             # 3. 도메인 라우터 초기화 및 에이전트 로드
-            self.domain_router = DomainRouter(self.config)
-            await self.domain_router.initialize_agents()
-            logger.info("도메인 라우터 및 에이전트 초기화 완료")
+            logger.info("도메인 라우터 초기화 시작...")
+            try:
+                self.domain_router = DomainRouter(self.config)
+                await self.domain_router.initialize_agents()
+                logger.info("도메인 라우터 및 에이전트 초기화 완료")
+            except Exception as e:
+                logger.error(f"도메인 라우터 초기화 실패: {e}")
+                import traceback
+                logger.error(f"스택 트레이스: {traceback.format_exc()}")
+                raise
 
             # 4. 응답 통합기 초기화
-            self.response_integrator = ResponseIntegrator(self.config)
-            logger.info("응답 통합기 초기화 완료")
+            logger.info("응답 통합기 초기화 시작...")
+            try:
+                self.response_integrator = ResponseIntegrator(self.config)
+                logger.info("응답 통합기 초기화 완료")
+            except Exception as e:
+                logger.error(f"응답 통합기 초기화 실패: {e}")
+                raise
 
             # 5. 평가 시스템 초기화 (선택사항)
             if self.pipeline_config.enable_evaluation:
-                self.react_evaluator = ReActEvaluationAgent(self.config)
-                logger.info("ReAct 평가 시스템 초기화 완료")
+                logger.info("ReAct 평가 시스템 초기화 시작...")
+                try:
+                    self.react_evaluator = ReActEvaluationAgent(self.config)
+                    logger.info("ReAct 평가 시스템 초기화 완료")
+                except Exception as e:
+                    logger.error(f"ReAct 평가 시스템 초기화 실패: {e}")
+                    raise
 
             # 6. HITL 인터페이스 초기화 (선택사항)
             if self.pipeline_config.enable_hitl:
-                self.hitl_interface = HITLInterface(self.config)
-                logger.info("HITL 인터페이스 초기화 완료")
+                logger.info("HITL 인터페이스 초기화 시작...")
+                try:
+                    self.hitl_interface = HITLInterface(self.config)
+                    logger.info("HITL 인터페이스 초기화 완료")
+                except Exception as e:
+                    logger.error(f"HITL 인터페이스 초기화 실패: {e}")
+                    raise
 
             self.is_initialized = True
             logger.info("파이프라인 초기화 완료")
@@ -176,6 +212,8 @@ class IntegratedRAGPipeline:
         except Exception as e:
             self.initialization_error = str(e)
             logger.error(f"파이프라인 초기화 실패: {e}")
+            import traceback
+            logger.error(f"전체 스택 트레이스: {traceback.format_exc()}")
             return False
 
     async def process_question(
@@ -186,13 +224,17 @@ class IntegratedRAGPipeline:
         **kwargs
     ) -> PipelineResult:
         """질문을 처리하고 완전한 결과를 반환합니다."""
+        logger.info(f"=== process_question 시작: {question} ===")
         start_time = time.time()
         stages_completed = []
 
         try:
             # 초기화 확인
+            logger.info(f"초기화 상태: {self.is_initialized}")
             if not self.is_initialized:
+                logger.info("파이프라인 초기화 필요")
                 if not await self.initialize():
+                    logger.error(f"초기화 실패: {self.initialization_error}")
                     return self._create_error_result(
                         question,
                         f"파이프라인 초기화 실패: {self.initialization_error}",
@@ -202,8 +244,15 @@ class IntegratedRAGPipeline:
             stages_completed.append(PipelineStage.INITIALIZATION)
 
             # 1. 질문 분석 단계
-            logger.info(f"질문 분석 시작: {question}")
-            analysis_result = self.question_analyzer.analyze_question(question)
+            logger.info(f"[1단계] 질문 분석 시작: {question}")
+            try:
+                analysis_result = self.question_analyzer.analyze_question(question)
+                logger.info(f"질문 분석 완료: {analysis_result}")
+            except Exception as e:
+                logger.error(f"질문 분석 실패: {e}")
+                import traceback
+                logger.error(f"스택 트레이스: {traceback.format_exc()}")
+                raise
             stages_completed.append(PipelineStage.QUESTION_ANALYSIS)
 
             # 2. 라우팅 및 에이전트 실행 단계

@@ -233,6 +233,8 @@ class StreamlitRAGApp:
 
         # 질문 입력
         if prompt := st.chat_input("질문을 입력하세요..."):
+            print(f"DEBUG: 질문 입력 받음 - {prompt}")
+
             # 사용자 메시지 추가
             st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -242,7 +244,9 @@ class StreamlitRAGApp:
             # AI 응답 생성
             with st.chat_message("assistant"):
                 with st.spinner("응답 생성 중..."):
+                    print(f"DEBUG: process_question 호출 시작 - 질문: {prompt}")
                     response = self.process_question(prompt)
+                    print(f"DEBUG: process_question 완료 - 응답 타입: {type(response)}")
 
                 st.markdown(response["content"])
 
@@ -259,20 +263,29 @@ class StreamlitRAGApp:
 
     def process_question(self, question: str) -> Dict[str, Any]:
         """질문을 처리합니다"""
+        print(f"DEBUG: process_question 메소드 시작 - 질문: {question}")
         try:
+            print("DEBUG: 시스템 상태 확인 시작")
             # 시스템 상태 확인
             if not st.session_state.system_status:
+                print("DEBUG: system_status가 None이므로 check_system_dependencies 호출")
                 st.session_state.system_status = self.check_system_dependencies()
+            else:
+                print("DEBUG: 기존 system_status 사용")
 
             status = st.session_state.system_status
+            print(f"DEBUG: 시스템 상태 - overall_status: {status['overall_status']}")
 
             if status["overall_status"] == "완전 정상":
+                print("DEBUG: 완전 정상 - RAG 파이프라인 사용")
                 # 실제 RAG 파이프라인 사용
                 return self._process_with_rag_pipeline(question)
             elif status["overall_status"] == "부분 정상":
+                print("DEBUG: 부분 정상 - 제한적 기능 사용")
                 # 제한적 기능으로 처리
                 return self._process_with_limited_functionality(question, status)
             else:
+                print(f"DEBUG: 오류 상태 ({status['overall_status']}) - 오류 진단 응답")
                 # 오류 진단 및 안내
                 return self._generate_error_diagnosis_response(question, status)
 
@@ -286,18 +299,93 @@ class StreamlitRAGApp:
     def _process_with_rag_pipeline(self, question: str) -> Dict[str, Any]:
         """완전한 RAG 파이프라인으로 처리"""
         try:
-            # 실제 구현에서는 여기서 IntegratedRAGPipeline 사용
-            return {
-                "content": f"✨ **RAG 시스템 응답**\n\n질문: '{question}'에 대한 완전한 분석을 수행했습니다.\n\n이 기능은 모든 의존성이 설치된 후 활성화됩니다.",
-                "success": True,
-                "metadata": {
-                    "pipeline_mode": "full_rag",
-                    "processing_time": 2.5,
-                    "confidence": 0.85
+            # 실제 IntegratedRAGPipeline 사용
+            import asyncio
+            from src.pipeline.rag_pipeline import IntegratedRAGPipeline, PipelineConfig
+            from src.core.config import CoolStayConfig
+
+            # RAG 파이프라인 초기화 (캐싱)
+            if not hasattr(self, '_rag_pipeline') or self._rag_pipeline is None:
+                config = CoolStayConfig()
+                pipeline_config = PipelineConfig(
+                    enable_evaluation=False,  # 웹앱에서는 빠른 응답을 위해 평가 비활성화
+                    enable_hitl=False,       # HITL도 비활성화
+                    enable_web_search=True,
+                    enable_corrective_rag=True,
+                    max_concurrent_agents=3   # 동시 실행 에이전트 수 제한
+                )
+                self._rag_pipeline = IntegratedRAGPipeline(config, pipeline_config)
+
+            # 비동기 처리를 동기적으로 실행
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                # 파이프라인 초기화
+                if not self._rag_pipeline.is_initialized:
+                    print("DEBUG: 파이프라인 초기화 시작")
+                    print(f"DEBUG: config 타입: {type(config)}")
+                    initialization_success = loop.run_until_complete(
+                        self._rag_pipeline.initialize()
+                    )
+                    print(f"DEBUG: 초기화 결과: {initialization_success}")
+                    print(f"DEBUG: 초기화 오류: {self._rag_pipeline.initialization_error}")
+                    if not initialization_success:
+                        import traceback
+                        traceback.print_exc()
+                        raise Exception(f"파이프라인 초기화 실패: {self._rag_pipeline.initialization_error}")
+
+                # 질문 처리
+                print(f"DEBUG: 질문 처리 시작: {question}")
+                result = loop.run_until_complete(
+                    self._rag_pipeline.process_question(question)
+                )
+                print(f"DEBUG: 질문 처리 완료")
+                print(f"DEBUG: result type: {type(result)}")
+                print(f"DEBUG: result: {result}")
+
+                # 결과 포맷팅
+                return {
+                    "content": f"✨ **CoolStay RAG 시스템 응답**\n\n**질문**: {question}\n\n**답변**: {result.final_answer}\n\n**신뢰도**: {result.confidence:.1%}\n**처리 시간**: {result.execution_time:.2f}초",
+                    "success": result.success,
+                    "metadata": {
+                        "pipeline_mode": result.pipeline_mode.value,
+                        "processing_time": result.execution_time,
+                        "confidence": result.confidence,
+                        "stages_completed": [stage.value for stage in result.stages_completed],
+                        "routing_info": {
+                            "selected_agents": len(result.routing_result.agent_responses) if result.routing_result else 0,
+                            "domains_used": list(result.routing_result.agent_responses.keys()) if result.routing_result else []
+                        }
+                    }
                 }
-            }
+
+            finally:
+                loop.close()
+
         except Exception as e:
-            return self._process_with_limited_functionality(question)
+            # 오류 발생 시 상세 진단 제공
+            error_message = str(e)
+
+            # 구체적인 오류 유형에 따른 처리
+            if "API" in error_message or "key" in error_message.lower():
+                return {
+                    "content": f"🔑 **API 키 설정 오류**\n\n질문: '{question}'\n\n❌ API 키가 설정되지 않았거나 유효하지 않습니다.\n\n**해결 방법**:\n1. `.env` 파일에서 `OPENAI_API_KEY` 확인\n2. 유효한 OpenAI API 키인지 확인\n3. 웹앱 재시작\n\n**현재 오류**: {error_message}",
+                    "success": False,
+                    "metadata": {"error_type": "api_key", "error": error_message}
+                }
+            elif "import" in error_message.lower() or "module" in error_message.lower():
+                return {
+                    "content": f"📦 **모듈 임포트 오류**\n\n질문: '{question}'\n\n❌ 필요한 모듈을 불러올 수 없습니다.\n\n**해결 방법**:\n1. 가상환경이 활성화되어 있는지 확인\n2. `pip install -r requirements.txt` 재실행\n3. 웹앱 재시작\n\n**현재 오류**: {error_message}",
+                    "success": False,
+                    "metadata": {"error_type": "import_error", "error": error_message}
+                }
+            else:
+                return {
+                    "content": f"⚠️ **RAG 파이프라인 오류**\n\n질문: '{question}'\n\n❌ RAG 시스템 처리 중 오류가 발생했습니다.\n\n**오류 세부사항**: {error_message}\n\n**대안**: 제한적 기능을 사용해보거나, 시스템 상태를 다시 확인해주세요.",
+                    "success": False,
+                    "metadata": {"error_type": "pipeline_error", "error": error_message}
+                }
 
     def _process_with_limited_functionality(self, question: str, status: Dict[str, Any]) -> Dict[str, Any]:
         """제한적 기능으로 처리"""
