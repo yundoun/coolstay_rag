@@ -50,6 +50,11 @@ class CoolStayLLM:
         # 초기화 시도
         self.initialize()
 
+    @property
+    def model_name(self) -> str:
+        """모델 이름 반환"""
+        return self.config.name
+
     def initialize(self) -> bool:
         """LLM 초기화"""
         try:

@@ -13,6 +13,8 @@ from enum import Enum
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
+from ..core.config import CoolStayConfig
+
 from ..core.config import config, get_domain_config
 from ..core.llm import CoolStayLLM, get_default_llm
 
@@ -430,3 +432,18 @@ if __name__ == "__main__":
             print(f"     - {qtype}: {count}개")
     else:
         print("❌ 분석된 질문이 없습니다.")
+
+
+# 편의 함수들
+def create_question_analyzer(config: Optional[CoolStayConfig] = None) -> QuestionAnalyzer:
+    """질문 분석기를 생성합니다."""
+    return QuestionAnalyzer(config)
+
+
+def analyze_question_simple(
+    question: str,
+    config: Optional[CoolStayConfig] = None
+) -> QuestionAnalysis:
+    """간단한 질문 분석 함수"""
+    analyzer = QuestionAnalyzer(config)
+    return analyzer.analyze_question(question)
