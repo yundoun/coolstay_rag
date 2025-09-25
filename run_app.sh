@@ -9,15 +9,23 @@ echo "=================================================================="
 cd "$(dirname "$0")"
 
 # 가상환경 존재 여부 확인
-if [ -d "venv" ]; then
-    echo "✅ 가상환경 감지됨"
+if [ -d "coolstay_rag_env" ]; then
+    echo "✅ 가상환경 감지됨 (coolstay_rag_env)"
+    echo "🔄 가상환경 활성화 중..."
+    source coolstay_rag_env/bin/activate
+elif [ -d ".venv" ]; then
+    echo "✅ 가상환경 감지됨 (.venv)"
+    echo "🔄 가상환경 활성화 중..."
+    source .venv/bin/activate
+elif [ -d "venv" ]; then
+    echo "✅ 가상환경 감지됨 (venv)"
     echo "🔄 가상환경 활성화 중..."
     source venv/bin/activate
 else
     echo "⚠️  가상환경이 없습니다."
     echo "💡 다음 명령어로 가상환경을 생성하세요:"
-    echo "   python3 -m venv venv"
-    echo "   source venv/bin/activate"
+    echo "   python3 -m venv coolstay_rag_env"
+    echo "   source coolstay_rag_env/bin/activate"
     echo "   pip install -r requirements.txt"
     echo ""
     echo "🚀 기본 환경에서 실행합니다..."
