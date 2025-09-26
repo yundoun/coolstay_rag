@@ -15,7 +15,7 @@ from datetime import datetime
 from ..core.config import CoolStayConfig
 from ..data import ChromaManager
 from ..agents import (
-    BaseRAGAgent, CorrectiveRAGAgent, WebSearchAgent,
+    BaseRAGAgent, CorrectiveRAGAgent, WebSearchAgent, AgentResponse,
     create_all_domain_agents, create_all_corrective_agents, create_web_agent
 )
 from ..routing import (
@@ -130,6 +130,7 @@ class IntegratedRAGPipeline:
         self.response_integrator: Optional[ResponseIntegrator] = None
         self.react_evaluator: Optional[ReActEvaluationAgent] = None
         self.hitl_interface: Optional[HITLInterface] = None
+        self.corrective_agents: Optional[Dict[str, CorrectiveRAGAgent]] = None
 
         # 상태 추적
         self.is_initialized = False
@@ -170,6 +171,15 @@ class IntegratedRAGPipeline:
                 self.domain_router = DomainRouter(self.config)
                 await self.domain_router.initialize_agents()
                 logger.info("도메인 라우터 및 에이전트 초기화 완료")
+
+                # Corrective RAG 에이전트 초기화 (품질 검증용)
+                if self.pipeline_config.enable_corrective_rag:
+                    logger.info("Corrective RAG 에이전트 초기화...")
+                    self.corrective_agents = create_all_corrective_agents(
+                        llm=None,
+                        chroma_manager=self.chroma_manager
+                    )
+                    logger.info(f"Corrective RAG 에이전트 {len(self.corrective_agents)}개 생성 완료")
             except Exception as e:
                 logger.error(f"도메인 라우터 초기화 실패: {e}")
                 import traceback
@@ -315,10 +325,136 @@ class IntegratedRAGPipeline:
             stages_completed.append(PipelineStage.RESPONSE_INTEGRATION)
 
             # 4. 품질 검증
+            print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║ [4단계] 품질 검증 (Quality Validation)                       ║
+╚══════════════════════════════════════════════════════════════╝
+🔍 품질 검증 설정:
+   - 품질 검증 활성화: {self.pipeline_config.enable_quality_checks}
+   - Corrective RAG 활성화: {self.pipeline_config.enable_corrective_rag}
+   - 최소 신뢰도 임계값: {getattr(self.pipeline_config, 'min_confidence_threshold', '설정되지 않음')}
+   - 최소 품질 임계값: {getattr(self.pipeline_config, 'min_quality_threshold', '설정되지 않음')}
+""")
+
             if self.pipeline_config.enable_quality_checks:
-                if not self._validate_response_quality(integrated_response):
+                quality_result = self._validate_response_quality(integrated_response)
+                print(f"""
+🎯 품질 검증 결과:
+   - 현재 신뢰도: {integrated_response.confidence}
+   - 품질 메트릭스: {integrated_response.quality_metrics}
+   - 답변 길이: {len(integrated_response.final_answer.strip())}자
+   - 품질 검증 통과: {'✅ 통과' if quality_result else '❌ 미달'}
+""")
+                if not quality_result:
                     logger.warning("응답 품질이 임계값 미달")
-                    # 필요시 재실행 또는 대안 제시
+                    print("🔄 품질 개선이 필요합니다. Corrective RAG 메커니즘 실행 중...")
+
+                    # Corrective RAG를 통한 품질 개선 시도
+                    if self.pipeline_config.enable_corrective_rag and self.corrective_agents:
+                        print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║ [품질 개선] Corrective RAG 재처리 시작                        ║
+╚══════════════════════════════════════════════════════════════╝
+🎯 품질 미달 원인:
+   - 현재 신뢰도: {integrated_response.confidence} < {self.pipeline_config.min_confidence_threshold}
+   - 품질 점수: {sum(integrated_response.quality_metrics.values())/len(integrated_response.quality_metrics):.2f} < {self.pipeline_config.min_quality_threshold}
+""")
+
+                        # 가장 낮은 품질의 도메인을 선택하여 Corrective RAG 적용
+                        # 또는 무작위로 하나 선택 (모두 동일한 경우)
+                        lowest_quality_domain = None
+                        lowest_score = 1.0
+
+                        print(f"🔍 도메인별 응답 상태:")
+                        for agent_name, response in routing_result.agent_responses.items():
+                            score = getattr(response, 'confidence_score', 0.8)  # 기본값 0.8
+                            print(f"   - {agent_name}: 신뢰도 {score}")
+                            if score < lowest_score:
+                                lowest_score = score
+                                lowest_quality_domain = agent_name
+
+                        # 모든 도메인이 동일한 점수면 첫 번째 도메인 선택
+                        if lowest_quality_domain is None and routing_result.agent_responses:
+                            lowest_quality_domain = list(routing_result.agent_responses.keys())[0]
+                            print(f"ℹ️  모든 도메인이 동일한 품질 - {lowest_quality_domain} 선택")
+
+                        # 모든 개별 도메인의 품질이 높은 경우 - 통합 전략 변경
+                        all_high_quality = all(
+                            getattr(response, 'confidence_score', 0.8) >= 0.95
+                            for response in routing_result.agent_responses.values()
+                        )
+
+                        if all_high_quality:
+                            print("📊 모든 도메인이 고품질 - 통합 전략 변경 시도")
+
+                            # 다른 통합 전략 시도
+                            original_strategy = integrated_response.integration_strategy
+                            print(f"   - 기존 전략: {original_strategy.value}")
+
+                            # 전략 순서: AI_SYNTHESIS → CONSENSUS_BUILDING → WEIGHTED_MERGE
+                            from ..routing.response_integrator import IntegrationStrategy
+                            alternate_strategies = [
+                                IntegrationStrategy.CONSENSUS_BUILDING,
+                                IntegrationStrategy.WEIGHTED_MERGE,
+                                IntegrationStrategy.CONFIDENCE_RANKING
+                            ]
+
+                            for strategy in alternate_strategies:
+                                if strategy != original_strategy:
+                                    print(f"   - 대안 전략 시도: {strategy.value}")
+
+                                    # 통합 전략 강제 변경
+                                    routing_result.routing_decision.strategy = strategy
+                                    integrated_response = self.response_integrator.integrate_responses(routing_result)
+
+                                    if self._validate_response_quality(integrated_response):
+                                        print(f"✅ {strategy.value} 전략으로 품질 개선 성공!")
+                                        break
+                                    else:
+                                        print(f"   ↳ {strategy.value} 전략도 품질 미달")
+                            else:
+                                print("⚠️  모든 통합 전략 시도 후에도 품질 미달 - 현재 최선의 결과 사용")
+
+                        elif lowest_quality_domain and lowest_quality_domain in self.corrective_agents:
+                            # 기존 로직: 품질이 낮은 도메인 개선
+                            print(f"🔧 {lowest_quality_domain} 도메인 Corrective RAG 적용")
+                            corrective_agent = self.corrective_agents[lowest_quality_domain]
+
+                            # Corrective RAG 실행
+                            corrected_response = corrective_agent.corrective_query(question)
+
+                            # 개선된 응답으로 교체
+                            if corrected_response.quality_assessment.confidence_score > lowest_score:
+                                print(f"✅ 품질 개선 성공! ({lowest_score:.2f} → {corrected_response.quality_assessment.confidence_score:.2f})")
+
+                                # 응답 업데이트
+                                routing_result.agent_responses[lowest_quality_domain] = AgentResponse(
+                                    answer=corrected_response.final_answer,
+                                    source_documents=corrected_response.source_documents,
+                                    domain=corrected_response.domain,
+                                    agent_name=corrected_response.agent_name,
+                                    confidence_score=corrected_response.quality_assessment.confidence_score
+                                )
+
+                                # 통합 재실행
+                                print("🔄 개선된 응답으로 통합 재실행...")
+                                integrated_response = self.response_integrator.integrate_responses(routing_result)
+
+                                # 재검증
+                                if self._validate_response_quality(integrated_response):
+                                    print("✅ 품질 개선 후 검증 통과!")
+                                else:
+                                    print("⚠️  품질 개선 후에도 미달 - 현재 결과로 진행")
+                            else:
+                                print("⚠️  Corrective RAG 후에도 품질 개선 미미")
+                        else:
+                            print("⚠️  Corrective RAG 적용 가능한 도메인 없음")
+                    else:
+                        print("⚠️  Corrective RAG가 비활성화되어 있거나 사용 불가")
+                else:
+                    print("✅ 품질 검증을 성공적으로 통과했습니다.")
+            else:
+                print("⚠️  품질 검증이 비활성화되어 있습니다.")
 
             # 5. 평가 단계 (선택사항)
             evaluation_result = None

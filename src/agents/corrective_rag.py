@@ -221,7 +221,7 @@ class CorrectiveRAGAgent(BaseRAGAgent):
 
     def __init__(self, domain: str, llm: Optional[CoolStayLLM] = None,
                  chroma_manager=None, max_iterations: int = 3,
-                 quality_threshold: float = 0.7):
+                 quality_threshold: float = 0.85):
         """
         교정 RAG 에이전트 초기화
 
@@ -248,6 +248,16 @@ class CorrectiveRAGAgent(BaseRAGAgent):
         start_time = time.time()
         self.status = AgentStatus.BUSY
 
+        print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║ [Corrective RAG] {self.domain} 도메인 자가교정 시작            ║
+╚══════════════════════════════════════════════════════════════╝
+🎯 교정 설정:
+   - 최대 반복 횟수: {self.max_iterations}
+   - 품질 임계값: {self.quality_threshold}
+   - 원본 질문: {question}
+""")
+
         iteration_history = []
         current_question = question
         best_response = None
@@ -256,10 +266,21 @@ class CorrectiveRAGAgent(BaseRAGAgent):
         try:
             for iteration in range(self.max_iterations):
                 iteration_start = time.time()
+                print(f"""
+🔄 [반복 {iteration + 1}/{self.max_iterations}] {self.domain} 도메인 교정 진행
+   - 현재 질문: {current_question}
+""")
                 logger.info(f"🔄 {self.domain} 교정 반복 {iteration + 1}/{self.max_iterations}")
 
                 # 1. 기본 RAG 처리
                 basic_response = super().process_query(current_question)
+
+                print(f"""
+📝 [RAG 응답] 반복 {iteration + 1} 생성된 응답:
+   - 응답 길이: {len(basic_response.answer)}자
+   - 소스 문서 수: {len(basic_response.source_documents)}개
+   - 응답 내용 (처음 200자): {basic_response.answer[:200]}...
+""")
 
                 # 2. 품질 평가
                 context_texts = [doc.page_content for doc in basic_response.source_documents]
@@ -287,31 +308,68 @@ class CorrectiveRAGAgent(BaseRAGAgent):
                     quality.completeness_score + quality.confidence_score
                 ) / 4
 
+                print(f"""
+📊 [품질 평가] 반복 {iteration + 1} 결과:
+   - 관련성 점수: {quality.relevance_score:.2f}
+   - 정확성 점수: {quality.accuracy_score:.2f}
+   - 완성도 점수: {quality.completeness_score:.2f}
+   - 확신도 점수: {quality.confidence_score:.2f}
+   - 평균 품질: {avg_quality:.2f} (임계값: {self.quality_threshold})
+   - 전체 품질: {quality.overall_quality.value}
+   - 개선 필요: {'예' if quality.needs_improvement else '아니오'}
+   - 평가 이유: {quality.reasoning[:100]}...
+""")
+
                 # 최고 품질 응답 추적
                 if best_quality is None or avg_quality > best_quality:
                     best_response = basic_response
                     best_quality = avg_quality
+                    print(f"🏆 새로운 최고 품질 응답으로 업데이트 (점수: {avg_quality:.2f})")
 
-                # 품질이 충족되면 종료
-                if not quality.needs_improvement or avg_quality >= self.quality_threshold:
+                # 품질이 충족되면 종료 (AND 조건으로 변경 - 둘 다 만족해야 종료)
+                if not quality.needs_improvement and avg_quality >= self.quality_threshold:
+                    print(f"✅ {self.domain} 품질 목표 달성! (점수: {avg_quality:.2f}, 개선 불필요)")
                     logger.info(f"✅ {self.domain} 품질 목표 달성 (점수: {avg_quality:.2f})")
                     break
+                elif avg_quality >= self.quality_threshold:
+                    print(f"📊 품질 점수는 충족하나 개선이 필요합니다 (점수: {avg_quality:.2f})")
+                    # 개선이 필요하면 계속 진행
 
                 # 마지막 반복이면 종료
                 if iteration >= self.max_iterations - 1:
+                    print(f"🔄 {self.domain} 최대 반복 횟수 도달 - 최고 품질 응답 사용")
                     logger.info(f"🔄 {self.domain} 최대 반복 횟수 도달")
                     break
 
                 # 4. 쿼리 재작성
+                print(f"🔧 {self.domain} 품질 개선을 위한 쿼리 재작성 중...")
                 logger.info(f"🔧 {self.domain} 쿼리 재작성 중...")
                 current_question = self.query_rewriter.rewrite(
                     question, context_texts, quality.reasoning, self.description
                 )
 
+                print(f"""
+📝 쿼리 재작성 완료:
+   - 원본 질문: {question}
+   - 개선된 질문: {current_question}
+   - 개선 제안: {', '.join(quality.improvement_suggestions) if quality.improvement_suggestions else '없음'}
+""")
                 logger.info(f"   원래 질문: {question}")
                 logger.info(f"   개선된 질문: {current_question}")
 
             total_time = time.time() - start_time
+
+            print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║ [Corrective RAG 완료] {self.domain} 도메인 자가교정 결과      ║
+╚══════════════════════════════════════════════════════════════╝
+🏆 최종 결과:
+   - 수행된 반복 횟수: {len(iteration_history)}/{self.max_iterations}
+   - 달성된 최고 품질: {best_quality:.2f} (목표: {self.quality_threshold})
+   - 총 처리 시간: {total_time:.2f}초
+   - 품질 개선 여부: {'예' if len(iteration_history) > 1 else '아니오'}
+   - 최종 답변 길이: {len(best_response.answer)}자
+""")
 
             # 최종 응답 생성
             final_response = CorrectiveResponse(

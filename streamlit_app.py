@@ -316,6 +316,9 @@ class StreamlitRAGApp:
                     enable_hitl=False,       # HITL도 비활성화
                     enable_web_search=True,
                     enable_corrective_rag=True,
+                    enable_quality_checks=True,  # 품질 검증 활성화
+                    min_confidence_threshold=0.9,  # 높은 신뢰도 요구 (강제로 재구성 유발)
+                    min_quality_threshold=0.95,   # 높은 품질 요구 (강제로 재구성 유발)
                     max_concurrent_agents=3   # 동시 실행 에이전트 수 제한
                 )
                 self._rag_pipeline = IntegratedRAGPipeline(config, pipeline_config)
