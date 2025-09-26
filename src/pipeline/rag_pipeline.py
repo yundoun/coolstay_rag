@@ -244,10 +244,25 @@ class IntegratedRAGPipeline:
             stages_completed.append(PipelineStage.INITIALIZATION)
 
             # 1. 질문 분석 단계
-            logger.info(f"[1단계] 질문 분석 시작: {question}")
+            print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║ [1단계] 질문 분석 (Question Analysis)                         ║
+╚══════════════════════════════════════════════════════════════╝
+📝 원본 질문: {question}
+""")
             try:
                 analysis_result = self.question_analyzer.analyze_question(question)
-                logger.info(f"질문 분석 완료: {analysis_result}")
+                print(f"""
+✅ 분석 완료:
+   - 질문 타입: {analysis_result.question_type.value if hasattr(analysis_result, 'question_type') else 'N/A'}
+   - 주요 도메인: {analysis_result.primary_domains if hasattr(analysis_result, 'primary_domains') else 'N/A'}
+   - 보조 도메인: {analysis_result.secondary_domains if hasattr(analysis_result, 'secondary_domains') else 'N/A'}
+   - 복잡도: {analysis_result.complexity if hasattr(analysis_result, 'complexity') else 'N/A'}
+   - 신뢰도: {analysis_result.confidence_score if hasattr(analysis_result, 'confidence_score') else 'N/A'}
+   - 웹 검색 필요: {analysis_result.requires_web_search if hasattr(analysis_result, 'requires_web_search') else 'N/A'}
+   - 의도: {analysis_result.intent if hasattr(analysis_result, 'intent') else 'N/A'}
+   - 키워드: {analysis_result.keywords if hasattr(analysis_result, 'keywords') else 'N/A'}
+""")
             except Exception as e:
                 logger.error(f"질문 분석 실패: {e}")
                 import traceback
@@ -256,14 +271,47 @@ class IntegratedRAGPipeline:
             stages_completed.append(PipelineStage.QUESTION_ANALYSIS)
 
             # 2. 라우팅 및 에이전트 실행 단계
-            logger.info("도메인 라우팅 및 에이전트 실행 시작")
+            print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║ [2단계] 라우팅 결정 (Routing Decision)                        ║
+╚══════════════════════════════════════════════════════════════╝
+🎯 의사결정 과정:
+   - 분석된 도메인 수: {len(analysis_result.primary_domains) if hasattr(analysis_result, 'primary_domains') else 0}
+   - 복잡도 기반 전략 선택 중...
+""")
             routing_result = await self.domain_router.route_question(question)
+
+            print(f"""
+✅ 라우팅 완료:
+   - 라우팅 전략: {routing_result.routing_decision.strategy.value if hasattr(routing_result, 'routing_decision') else 'N/A'}
+   - 선택된 에이전트: {routing_result.routing_decision.primary_agents if hasattr(routing_result, 'routing_decision') else 'N/A'}
+   - 활성화된 에이전트 수: {len(routing_result.agent_responses) if hasattr(routing_result, 'agent_responses') else 0}
+   - 의사결정 이유: {routing_result.routing_decision.reasoning if hasattr(routing_result, 'routing_decision') else 'N/A'}
+""")
             stages_completed.append(PipelineStage.ROUTING)
             stages_completed.append(PipelineStage.AGENT_EXECUTION)
 
             # 3. 응답 통합 단계
-            logger.info("응답 통합 시작")
+            print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║ [3단계] 응답 통합 (Response Integration)                      ║
+╚══════════════════════════════════════════════════════════════╝
+🔄 통합 프로세스:
+   - 수집된 응답 수: {len(routing_result.agent_responses) if hasattr(routing_result, 'agent_responses') else 0}
+   - 응답 에이전트: {list(routing_result.agent_responses.keys()) if hasattr(routing_result, 'agent_responses') else []}
+""")
             integrated_response = self.response_integrator.integrate_responses(routing_result)
+
+            print(f"""
+✅ 통합 완료:
+   - 통합 전략: {integrated_response.integration_strategy.value if hasattr(integrated_response, 'integration_strategy') else 'N/A'}
+   - 최종 신뢰도: {integrated_response.confidence if hasattr(integrated_response, 'confidence') else 'N/A'}
+   - 품질 메트릭스:
+     • 완전성: {integrated_response.quality_metrics.get('completeness', 'N/A') if hasattr(integrated_response, 'quality_metrics') else 'N/A'}
+     • 명확성: {integrated_response.quality_metrics.get('clarity', 'N/A') if hasattr(integrated_response, 'quality_metrics') else 'N/A'}
+     • 관련성: {integrated_response.quality_metrics.get('relevance', 'N/A') if hasattr(integrated_response, 'quality_metrics') else 'N/A'}
+     • 정확성: {integrated_response.quality_metrics.get('accuracy', 'N/A') if hasattr(integrated_response, 'quality_metrics') else 'N/A'}
+""")
             stages_completed.append(PipelineStage.RESPONSE_INTEGRATION)
 
             # 4. 품질 검증
@@ -320,7 +368,18 @@ class IntegratedRAGPipeline:
                 }
             )
 
-            logger.info(f"질문 처리 완료: {execution_time:.2f}초")
+            print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║ [최종] 파이프라인 처리 완료                                   ║
+╚══════════════════════════════════════════════════════════════╝
+⭐ 최종 결과:
+   - 총 처리 시간: {execution_time:.2f}초
+   - 완료된 단계: {[stage.value for stage in stages_completed]}
+   - 최종 신뢰도: {integrated_response.confidence if integrated_response else 'N/A'}
+   - 답변 길이: {len(integrated_response.final_answer) if integrated_response else 0}자
+   - 성공 여부: ✅ 성공
+═══════════════════════════════════════════════════════════════
+""")
             return result
 
         except Exception as e:

@@ -299,7 +299,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
 
         # 가중치가 가장 높은 응답을 기본으로 사용
         primary_response = max(weights, key=lambda w: w.total_weight)
-        primary_content = valid_responses[primary_response.agent_name].content
+        primary_content = valid_responses[primary_response.agent_name].answer
 
         # 보조 정보 추가
         supplementary_info = []
@@ -358,7 +358,15 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
 
             # JSON 파싱 시도
             try:
-                parsed_result = json.loads(synthesis_result.content)
+                # JSON 코드 블록 제거
+                content = synthesis_result.content.strip()
+                if content.startswith('```json'):
+                    content = content[7:]  # '```json' 제거
+                if content.endswith('```'):
+                    content = content[:-3]  # '```' 제거
+                content = content.strip()
+
+                parsed_result = json.loads(content)
 
                 final_answer = parsed_result.get('final_answer', synthesis_result.content)
                 confidence = parsed_result.get('confidence', 0.8)
@@ -633,7 +641,7 @@ JSON 형식으로 각 점수와 총평을 제공해주세요.
             for keyword in domain_keywords:
                 if keyword in response.answer.lower():
                     # 다른 응답에서 언급되지 않은 경우
-                    other_responses = [r.content.lower() for name, r in valid_responses.items() if name != agent_name]
+                    other_responses = [r.answer.lower() for name, r in valid_responses.items() if name != agent_name]
                     if not any(keyword in other_content for other_content in other_responses):
                         unique_mentions.append(keyword)
 

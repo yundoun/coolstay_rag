@@ -240,6 +240,10 @@ class WebSearchAgent:
             fallback_answer = f"웹 검색을 통해 다음 정보를 찾았습니다:\n\n{formatted_results}"
             return fallback_answer
 
+    def query(self, question: str, **kwargs) -> AgentResponse:
+        """BaseRAGAgent 인터페이스 호환을 위한 메서드"""
+        return self.process_query(question, **kwargs)
+
     def process_query(self, question: str, **kwargs) -> AgentResponse:
         """웹 검색 기반 질문 처리"""
         start_time = time.time()

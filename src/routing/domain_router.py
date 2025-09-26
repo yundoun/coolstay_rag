@@ -459,7 +459,7 @@ class DomainRouter:
 
                 # 다음 에이전트를 위한 컨텍스트 업데이트
                 if response.status == AgentStatus.READY:
-                    context = f"{question}\n\n이전 분석: {response.content}"
+                    context = f"{question}\n\n이전 분석: {response.answer}"
 
             except Exception as e:
                 logger.error(f"에이전트 {agent_name} 순차 실행 실패: {e}")

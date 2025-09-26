@@ -81,6 +81,9 @@ class StreamlitRAGApp:
         if 'chat_history' not in st.session_state:
             st.session_state.chat_history = []
 
+        if 'evaluation_counter' not in st.session_state:
+            st.session_state.evaluation_counter = 0
+
     def check_system_dependencies(self) -> Dict[str, Any]:
         """시스템 의존성을 확인합니다"""
         status = {
@@ -259,7 +262,8 @@ class StreamlitRAGApp:
 
                 # 응답 평가 UI
                 if response.get("success", True):
-                    self.display_response_evaluation(prompt, response["content"])
+                    st.session_state.evaluation_counter += 1
+                    self.display_response_evaluation(prompt, response["content"], st.session_state.evaluation_counter)
 
     def process_question(self, question: str) -> Dict[str, Any]:
         """질문을 처리합니다"""
@@ -342,7 +346,50 @@ class StreamlitRAGApp:
                 )
                 print(f"DEBUG: 질문 처리 완료")
                 print(f"DEBUG: result type: {type(result)}")
-                print(f"DEBUG: result: {result}")
+                # 결과 상세 분석 로그
+                print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║ [결과 분석] Pipeline Result 상세 정보                         ║
+╚══════════════════════════════════════════════════════════════╝
+📋 기본 정보:
+   - 질문: {result.question}
+   - 성공 여부: {'✅ 성공' if result.success else '❌ 실패'}
+   - 신뢰도: {result.confidence:.2f}
+   - 처리 시간: {result.execution_time:.2f}초
+   - 파이프라인 모드: {result.pipeline_mode.value if hasattr(result, 'pipeline_mode') else 'N/A'}
+
+🎯 라우팅 정보:
+   - 전략: {result.routing_result.routing_decision.strategy.value if hasattr(result, 'routing_result') and result.routing_result else 'N/A'}
+   - 활성 에이전트: {list(result.routing_result.agent_responses.keys()) if hasattr(result, 'routing_result') and result.routing_result else 'N/A'}
+   - 웹 검색 수행: {'✅' if hasattr(result, 'routing_result') and result.routing_result and result.routing_result.web_response else '❌'}
+
+🔄 응답 통합:
+   - 통합 전략: {result.integrated_response.integration_strategy.value if hasattr(result, 'integrated_response') and result.integrated_response else 'N/A'}
+   - 기여 에이전트: {result.integrated_response.contributing_agents if hasattr(result, 'integrated_response') and result.integrated_response else 'N/A'}
+   - 품질 점수: {result.integrated_response.quality_metrics if hasattr(result, 'integrated_response') and result.integrated_response else 'N/A'}
+
+📝 최종 답변 (처음 200자):
+   {result.final_answer[:200]}{'...' if len(result.final_answer) > 200 else ''}
+
+🏁 완료된 단계: {[stage.value for stage in result.stages_completed] if hasattr(result, 'stages_completed') else 'N/A'}
+""")
+
+                # 각 에이전트별 상세 응답 (옵션)
+                if hasattr(result, 'routing_result') and result.routing_result and result.routing_result.agent_responses:
+                    print("🤖 에이전트별 응답 요약:")
+                    for agent_name, agent_response in result.routing_result.agent_responses.items():
+                        status_icon = "✅" if agent_response.status.value == "ready" else "❌"
+                        confidence = f"{agent_response.confidence_score:.2f}" if agent_response.confidence_score else "N/A"
+                        answer_preview = agent_response.answer[:100].replace('\n', ' ') + "..." if len(agent_response.answer) > 100 else agent_response.answer.replace('\n', ' ')
+                        print(f"   - {agent_name}: {status_icon} (신뢰도: {confidence}) {answer_preview}")
+
+                if hasattr(result, 'routing_result') and result.routing_result and result.routing_result.web_response:
+                    web_response = result.routing_result.web_response
+                    web_status = "✅" if web_response.status.value == "ready" else "❌"
+                    web_preview = web_response.answer[:100].replace('\n', ' ') + "..." if len(web_response.answer) > 100 else web_response.answer.replace('\n', ' ')
+                    print(f"   - 웹검색: {web_status} {web_preview}")
+
+                print("═" * 66)
 
                 # 결과 포맷팅
                 return {
@@ -547,7 +594,7 @@ class StreamlitRAGApp:
 
         return "\n".join(steps) if steps else "사이드바의 권장사항을 확인해주세요."
 
-    def display_response_evaluation(self, question: str, response: str):
+    def display_response_evaluation(self, question: str, response: str, evaluation_id: int):
         """응답 평가 UI 표시"""
         st.markdown("---")
         st.markdown("### 📊 응답 평가")
@@ -555,17 +602,17 @@ class StreamlitRAGApp:
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            rating = st.slider("전체 만족도", 1, 5, 3, key=f"rating_{len(st.session_state.messages)}")
+            rating = st.slider("전체 만족도", 1, 5, 3, key=f"rating_{evaluation_id}")
 
         with col2:
-            relevance = st.selectbox("관련성", ["높음", "보통", "낮음"], index=1, key=f"relevance_{len(st.session_state.messages)}")
+            relevance = st.selectbox("관련성", ["높음", "보통", "낮음"], index=1, key=f"relevance_{evaluation_id}")
 
         with col3:
-            usefulness = st.selectbox("실용성", ["유용함", "보통", "유용하지 않음"], index=1, key=f"usefulness_{len(st.session_state.messages)}")
+            usefulness = st.selectbox("실용성", ["유용함", "보통", "유용하지 않음"], index=1, key=f"usefulness_{evaluation_id}")
 
-        feedback = st.text_area("추가 피드백", placeholder="개선 사항이나 추가 의견을 입력해주세요...", key=f"feedback_{len(st.session_state.messages)}")
+        feedback = st.text_area("추가 피드백", placeholder="개선 사항이나 추가 의견을 입력해주세요...", key=f"feedback_{evaluation_id}")
 
-        if st.button("💾 피드백 저장", key=f"save_feedback_{len(st.session_state.messages)}"):
+        if st.button("💾 피드백 저장", key=f"save_feedback_{evaluation_id}"):
             # 피드백 저장
             feedback_data = {
                 "timestamp": datetime.now().isoformat(),
