@@ -49,9 +49,9 @@ venv.bak/
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# ChromaDB - Vector Database Files
-chroma_db/
-*.sqlite3
+# ChromaDB - Vector Database Files (주석 처리: 배포를 위해 git에 포함)
+# chroma_db/
+# *.sqlite3  # chroma_db의 sqlite3 파일은 포함
 *.sqlite3-journal
 *.sqlite3-wal
 *.sqlite3-shm

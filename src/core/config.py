@@ -144,11 +144,11 @@ class CoolStayConfig:
             max_tokens=2000
         )
 
-        # 임베딩 모델 설정 (Ollama)
+        # 임베딩 모델 설정 (OpenAI로 변경)
         self.embedding_config = ModelConfig(
-            name=get_env_var("EMBEDDING_MODEL", "bge-m3"),
-            api_key="",  # Ollama는 API 키 불필요
-            base_url=get_env_var("OLLAMA_BASE_URL", "http://localhost:11434")
+            name="text-embedding-3-small",
+            api_key=get_env_var("OPENAI_API_KEY", ""),
+            base_url=None  # OpenAI는 base_url 불필요
         )
 
         # Tavily 웹 검색 설정

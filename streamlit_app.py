@@ -103,23 +103,6 @@ class StreamlitRAGApp:
                 "domains": len(config.get_domains()),
                 "data_dir": str(config.data_dir)
             }
-
-            # 벡터 DB 자동 초기화 (Streamlit Cloud에서)
-            try:
-                from src.utils.cloud_init import initialize_vectordb_if_needed, is_cloud_environment
-
-                if is_cloud_environment():
-                    st.info("☁️ Streamlit Cloud 환경 감지: 벡터 DB 초기화 중...")
-                    init_result = initialize_vectordb_if_needed(config)
-                    status["vectordb_init"] = init_result
-
-                    if init_result["initialized"]:
-                        st.success(f"✅ {init_result['message']}")
-                    elif init_result["errors"]:
-                        st.warning(f"⚠️ 일부 초기화 실패: {len(init_result['errors'])}개 오류")
-            except Exception as e:
-                st.warning(f"⚠️ 벡터 DB 자동 초기화 실패: {str(e)}")
-
         except Exception as e:
             status["modules"]["core"] = {"status": "❌", "message": f"오류: {str(e)}"}
 

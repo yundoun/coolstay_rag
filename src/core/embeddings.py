@@ -39,41 +39,17 @@ class EmbeddingResponse:
 
 
 class CoolStayEmbeddings:
-    """CoolStay RAG 시스템용 임베딩 래퍼 클래스"""
+    """CoolStay RAG 시스템용 임베딩 래퍼 클래스 (OpenAI 전용)"""
 
-    def __init__(self, model_config: Optional[ModelConfig] = None, use_openai: bool = None):
+    def __init__(self, model_config: Optional[ModelConfig] = None):
         """
         임베딩 모델 초기화
 
         Args:
             model_config: 모델 설정. None인 경우 기본 설정 사용
-            use_openai: OpenAI 임베딩 사용 여부. None인 경우 자동 감지 (Streamlit Cloud에서는 자동으로 OpenAI 사용)
         """
         self.config = model_config or config.embedding_config
-
-        # OpenAI 사용 여부 결정 (환경 변수 또는 자동 감지)
-        if use_openai is None:
-            # EMBEDDING_PROVIDER 환경 변수로 제어 가능
-            provider = get_env_var("EMBEDDING_PROVIDER", "auto").lower()
-            if provider == "openai":
-                self.use_openai = True
-            elif provider == "ollama":
-                self.use_openai = False
-            else:
-                # 자동 감지: Ollama가 설치되어있지 않거나 클라우드 환경이면 OpenAI 사용
-                # HAS_OLLAMA가 False이거나 클라우드 환경이면 OpenAI 사용
-                is_cloud = self._is_cloud_environment()
-                if is_cloud:
-                    self.use_openai = True
-                    logger.info("☁️ 클라우드 환경 감지: OpenAI 임베딩 사용")
-                elif not HAS_OLLAMA:
-                    self.use_openai = True
-                    logger.info("📦 Ollama 미설치: OpenAI 임베딩 사용")
-                else:
-                    # Ollama 서버 연결 확인
-                    self.use_openai = not self._check_ollama_connection()
-        else:
-            self.use_openai = use_openai
+        self.use_openai = True  # 항상 OpenAI 사용
 
         self.embeddings = None
         self.is_initialized = False
@@ -83,64 +59,20 @@ class CoolStayEmbeddings:
         # 초기화 시도
         self.initialize()
 
-    def _is_cloud_environment(self) -> bool:
-        """클라우드 환경(Streamlit Cloud) 감지"""
-        # Streamlit Cloud에서는 /mount/src/ 경로 사용
-        import sys
-        import os
-
-        # 여러 방법으로 클라우드 환경 감지
-        indicators = [
-            '/mount/src/' in str(Path(__file__).resolve()),  # 파일 경로 확인
-            '/mount/src/' in os.getcwd(),  # 작업 디렉토리 확인
-            os.getenv('STREAMLIT_SHARING_MODE') is not None,  # Streamlit 환경 변수
-        ]
-
-        return any(indicators)
-
-    def _check_ollama_connection(self) -> bool:
-        """Ollama 서버 실제 연결 가능 여부 확인"""
-        try:
-            response = requests.get(f"{self.config.base_url}/api/version", timeout=2)
-            return response.status_code == 200
-        except:
-            return False
-
     def initialize(self) -> bool:
-        """임베딩 모델 초기화"""
+        """임베딩 모델 초기화 (OpenAI 전용)"""
         try:
-            if self.use_openai:
-                # OpenAI 임베딩 사용
-                openai_api_key = get_env_var("OPENAI_API_KEY", "")
-                if not openai_api_key:
-                    raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
+            # OpenAI 임베딩 사용
+            openai_api_key = get_env_var("OPENAI_API_KEY", "")
+            if not openai_api_key:
+                raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
 
-                self.embeddings = OpenAIEmbeddings(
-                    model="text-embedding-3-small",  # 저렴하고 빠른 모델
-                    openai_api_key=openai_api_key
-                )
-                model_name = "text-embedding-3-small"
-                self.dimension = 1536  # text-embedding-3-small의 차원
-
-            else:
-                # Ollama 임베딩 사용
-                if not HAS_OLLAMA:
-                    raise ImportError("langchain_ollama 패키지가 설치되지 않았습니다.")
-
-                # Ollama 서버 연결 확인
-                if not self._check_ollama_server():
-                    raise ConnectionError("Ollama 서버에 연결할 수 없습니다. 'ollama serve' 명령으로 서버를 시작해주세요.")
-
-                # 모델 존재 확인
-                if not self._check_model_exists():
-                    raise ValueError(f"모델 '{self.config.name}'이 설치되지 않았습니다. 'ollama pull {self.config.name}' 명령으로 설치해주세요.")
-
-                # OllamaEmbeddings 인스턴스 생성
-                self.embeddings = OllamaEmbeddings(
-                    model=self.config.name,
-                    base_url=self.config.base_url
-                )
-                model_name = self.config.name
+            self.embeddings = OpenAIEmbeddings(
+                model="text-embedding-3-small",  # 저렴하고 빠른 모델
+                openai_api_key=openai_api_key
+            )
+            model_name = "text-embedding-3-small"
+            self.dimension = 1536  # text-embedding-3-small의 차원
 
             # 연결 테스트
             test_response = self._test_connection()
@@ -148,8 +80,7 @@ class CoolStayEmbeddings:
                 self.is_initialized = True
                 if not self.dimension:
                     self.dimension = test_response.dimension
-                provider = "OpenAI" if self.use_openai else "Ollama"
-                logger.info(f"✅ 임베딩 모델 초기화 성공: {model_name} ({provider}, {self.dimension}차원)")
+                logger.info(f"✅ 임베딩 모델 초기화 성공: {model_name} (OpenAI, {self.dimension}차원)")
                 return True
             else:
                 raise Exception(f"연결 테스트 실패: {test_response.error}")
@@ -160,29 +91,6 @@ class CoolStayEmbeddings:
             logger.error(f"❌ 임베딩 모델 초기화 실패: {e}")
             return False
 
-    def _check_ollama_server(self) -> bool:
-        """Ollama 서버 연결 확인"""
-        if self.use_openai:
-            return True  # OpenAI 사용 시 Ollama 서버 체크 불필요
-        try:
-            response = requests.get(f"{self.config.base_url}/api/version", timeout=5)
-            return response.status_code == 200
-        except requests.exceptions.RequestException:
-            return False
-
-    def _check_model_exists(self) -> bool:
-        """설치된 모델 확인"""
-        if self.use_openai:
-            return True  # OpenAI 사용 시 모델 체크 불필요
-        try:
-            response = requests.get(f"{self.config.base_url}/api/tags", timeout=10)
-            if response.status_code == 200:
-                models = response.json().get("models", [])
-                model_names = [model.get("name", "").split(":")[0] for model in models]
-                return self.config.name in model_names
-            return False
-        except requests.exceptions.RequestException:
-            return False
 
     def _test_connection(self) -> EmbeddingResponse:
         """임베딩 모델 연결 테스트"""
@@ -192,21 +100,18 @@ class CoolStayEmbeddings:
             test_embedding = self.embeddings.embed_query(test_text)
             response_time = time.time() - start_time
 
-            model_name = "OpenAI" if self.use_openai else self.config.name
-
             return EmbeddingResponse(
                 embeddings=[test_embedding],
                 dimension=len(test_embedding),
-                model=model_name,
+                model="OpenAI",
                 response_time=response_time,
                 success=True
             )
 
         except Exception as e:
-            model_name = "OpenAI" if self.use_openai else self.config.name
             return EmbeddingResponse(
                 error=str(e),
-                model=model_name,
+                model="OpenAI",
                 success=False
             )
 
@@ -319,19 +224,11 @@ class CoolStayEmbeddings:
         """임베딩 모델 상태 정보 반환"""
         status = {
             "initialized": self.is_initialized,
-            "model": self.config.name,
-            "base_url": self.config.base_url,
+            "model": "text-embedding-3-small",
+            "provider": "OpenAI",
             "dimension": self.dimension,
             "initialization_error": self.initialization_error
         }
-
-        # 서버 상태 확인
-        if self.is_initialized:
-            status["server_connected"] = self._check_ollama_server()
-            status["model_available"] = self._check_model_exists()
-        else:
-            status["server_connected"] = False
-            status["model_available"] = False
 
         return status
 
