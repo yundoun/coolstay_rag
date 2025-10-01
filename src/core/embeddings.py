@@ -59,8 +59,18 @@ class CoolStayEmbeddings:
             elif provider == "ollama":
                 self.use_openai = False
             else:
-                # 자동 감지: Streamlit Cloud 환경이거나 Ollama가 없으면 OpenAI 사용
-                self.use_openai = not HAS_OLLAMA or self._is_cloud_environment()
+                # 자동 감지: Ollama가 설치되어있지 않거나 클라우드 환경이면 OpenAI 사용
+                # HAS_OLLAMA가 False이거나 클라우드 환경이면 OpenAI 사용
+                is_cloud = self._is_cloud_environment()
+                if is_cloud:
+                    self.use_openai = True
+                    logger.info("☁️ 클라우드 환경 감지: OpenAI 임베딩 사용")
+                elif not HAS_OLLAMA:
+                    self.use_openai = True
+                    logger.info("📦 Ollama 미설치: OpenAI 임베딩 사용")
+                else:
+                    # Ollama 서버 연결 확인
+                    self.use_openai = not self._check_ollama_connection()
         else:
             self.use_openai = use_openai
 
@@ -76,7 +86,24 @@ class CoolStayEmbeddings:
         """클라우드 환경(Streamlit Cloud) 감지"""
         # Streamlit Cloud에서는 /mount/src/ 경로 사용
         import sys
-        return '/mount/src/' in sys.path[0] if sys.path else False
+        import os
+
+        # 여러 방법으로 클라우드 환경 감지
+        indicators = [
+            '/mount/src/' in str(Path(__file__).resolve()),  # 파일 경로 확인
+            '/mount/src/' in os.getcwd(),  # 작업 디렉토리 확인
+            os.getenv('STREAMLIT_SHARING_MODE') is not None,  # Streamlit 환경 변수
+        ]
+
+        return any(indicators)
+
+    def _check_ollama_connection(self) -> bool:
+        """Ollama 서버 실제 연결 가능 여부 확인"""
+        try:
+            response = requests.get(f"{self.config.base_url}/api/version", timeout=2)
+            return response.status_code == 200
+        except:
+            return False
 
     def initialize(self) -> bool:
         """임베딩 모델 초기화"""

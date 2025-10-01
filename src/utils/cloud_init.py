@@ -77,8 +77,22 @@ def initialize_vectordb_if_needed(config) -> Dict[str, Any]:
                     result["errors"].append({domain: error_msg})
                     continue
 
-                loader = MarkdownLoader(str(file_path))
-                documents = loader.load()
+                # MarkdownLoader는 파일 경로가 아닌 data_dir를 받음
+                loader = MarkdownLoader(config.data_dir)
+                content = loader.load_domain_file(domain)
+
+                if not content:
+                    error_msg = f"파일 로드 실패"
+                    logger.error(f"   ❌ {error_msg}")
+                    result["errors"].append({domain: error_msg})
+                    continue
+
+                # Document 객체로 변환
+                from langchain_core.documents import Document
+                documents = [Document(
+                    page_content=content,
+                    metadata={"source": str(file_path), "domain": domain}
+                )]
 
                 # 2. 텍스트 분할
                 text_splitter = RecursiveCharacterTextSplitter(
