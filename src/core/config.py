@@ -13,6 +13,28 @@ from dotenv import load_dotenv
 # 환경 변수 로드
 load_dotenv()
 
+# Streamlit secrets 지원
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    HAS_STREAMLIT = False
+
+
+def get_env_var(key: str, default: str = "") -> str:
+    """
+    환경 변수 또는 Streamlit secrets에서 값 가져오기
+    우선순위: Streamlit secrets > 환경 변수 > 기본값
+    """
+    if HAS_STREAMLIT:
+        try:
+            # Streamlit secrets에서 먼저 시도
+            return st.secrets.get(key, os.getenv(key, default))
+        except (AttributeError, FileNotFoundError):
+            # secrets.toml이 없거나 key가 없는 경우
+            return os.getenv(key, default)
+    return os.getenv(key, default)
+
 
 @dataclass
 class DomainConfig:
@@ -117,22 +139,22 @@ class CoolStayConfig:
         # OpenAI 모델 설정
         self.openai_config = ModelConfig(
             name="gpt-4o-mini",
-            api_key=os.getenv("OPENAI_API_KEY", ""),
+            api_key=get_env_var("OPENAI_API_KEY", ""),
             temperature=0.1,
             max_tokens=2000
         )
 
         # 임베딩 모델 설정 (Ollama)
         self.embedding_config = ModelConfig(
-            name="bge-m3",
+            name=get_env_var("EMBEDDING_MODEL", "bge-m3"),
             api_key="",  # Ollama는 API 키 불필요
-            base_url="http://localhost:11434"
+            base_url=get_env_var("OLLAMA_BASE_URL", "http://localhost:11434")
         )
 
         # Tavily 웹 검색 설정
         self.tavily_config = ModelConfig(
             name="tavily-search",
-            api_key=os.getenv("TAVILY_API_KEY", "")
+            api_key=get_env_var("TAVILY_API_KEY", "")
         )
 
     def _setup_chunking(self):
@@ -302,12 +324,12 @@ def get_model_config(model_type: str) -> ModelConfig:
 
 def is_development_mode() -> bool:
     """개발 모드 여부 확인"""
-    return os.getenv("ENVIRONMENT", "development").lower() == "development"
+    return get_env_var("ENVIRONMENT", "development").lower() == "development"
 
 
 def get_log_level() -> str:
     """로그 레벨 반환"""
-    return os.getenv("LOG_LEVEL", "INFO").upper()
+    return get_env_var("LOG_LEVEL", "INFO").upper()
 
 
 if __name__ == "__main__":
